@@ -17,9 +17,11 @@ namespace LearnInDepth.Services.Generation
         private readonly IChapterAssignmentRepository assignmentRepository;
         private readonly ILogger<ChapterGenerator> logger;
         private readonly string contentModel;
+        private readonly string contentReviewModel;
         private readonly string quizModel;
         private readonly string assignmentModel;
         private readonly int contentMaxTokens;
+        private readonly int contentReviewMaxTokens;
         private readonly int artifactMaxTokens;
         private readonly int maxArtifactAttempts;
         private readonly int artifactRetryDelaySeconds;
@@ -40,9 +42,11 @@ namespace LearnInDepth.Services.Generation
             this.assignmentRepository = assignmentRepository;
             this.logger = logger;
             this.contentModel = configuration["OpenCode:ContentModel"] ?? "kimi-k3";
+            this.contentReviewModel = configuration["OpenCode:ContentReviewModel"] ?? "kimi-k3";
             this.quizModel = configuration["OpenCode:QuizModel"] ?? "deepseek-v4-flash";
             this.assignmentModel = configuration["OpenCode:AssignmentModel"] ?? "deepseek-v4-flash";
-            this.contentMaxTokens = configuration.GetValue<int?>("OpenCode:ContentMaxTokens") ?? 16000;
+            this.contentMaxTokens = configuration.GetValue<int?>("OpenCode:ContentMaxTokens") ?? 32000;
+            this.contentReviewMaxTokens = configuration.GetValue<int?>("OpenCode:ContentReviewMaxTokens") ?? 32000;
             this.artifactMaxTokens = configuration.GetValue<int?>("OpenCode:ArtifactMaxTokens") ?? 8192;
             this.maxArtifactAttempts = configuration.GetValue<int?>("OpenCode:MaxArtifactAttempts") ?? 3;
             this.artifactRetryDelaySeconds = configuration.GetValue<int?>("OpenCode:ArtifactRetryDelaySeconds") ?? 5;
@@ -95,6 +99,11 @@ namespace LearnInDepth.Services.Generation
                     }
 
                     string html = SanitizeHtml(result.Text);
+
+                    // Review-and-fix pass: a second LLM call reviews the generated content for
+                    // mistakes/issues and returns corrected content. Only the reviewed version is saved.
+                    html = await ReviewAndFixContentAsync(plan, chapter, html, attempt, ct).ConfigureAwait(false);
+
                     await contentRepository.UpsertAsync(new ChapterContent
                     {
                         id = ChapterContentRepository.BuildId(plan.id, chapter.Order),
@@ -102,7 +111,7 @@ namespace LearnInDepth.Services.Generation
                         Order = chapter.Order,
                         Title = chapter.Title,
                         HtmlContent = html,
-                        Model = result.ModelUsed,
+                        Model = contentModel,
                         GeneratedAtUtc = DateTime.UtcNow
                     }).ConfigureAwait(false);
                     return html;
@@ -110,6 +119,47 @@ namespace LearnInDepth.Services.Generation
                 cancellationToken).ConfigureAwait(false);
 
             return success ? BuildExcerpt(html) : string.Empty;
+        }
+
+        /// <summary>
+        /// Runs a review LLM call over the generated content and returns the corrected HTML.
+        /// Falls back to the original content if review fails so a review error never blocks saving.
+        /// </summary>
+        private async Task<string> ReviewAndFixContentAsync(
+            LearningPlan plan, ChapterOutline chapter, string generatedHtml, int attempt, CancellationToken cancellationToken)
+        {
+            try
+            {
+                CompletionResult review = await llmClient.SendPromptTextAsync(
+                    contentReviewModel,
+                    ContentReviewPromptBuilder.SystemPrompt,
+                    ContentReviewPromptBuilder.BuildUserPrompt(plan.Topic, chapter, generatedHtml),
+                    temperature: TemperatureForAttempt(0.2, attempt),
+                    maxTokens: contentReviewMaxTokens,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+
+                if (!review.IsSuccess || string.IsNullOrWhiteSpace(review.Text))
+                {
+                    logger.LogWarning("Content review failed for plan {PlanId} chapter {Order}: {Error}. Saving original content.",
+                        plan.id, chapter.Order, review.ErrorMessage);
+                    return generatedHtml;
+                }
+
+                string reviewed = SanitizeHtml(review.Text);
+                if (string.IsNullOrWhiteSpace(reviewed))
+                {
+                    return generatedHtml;
+                }
+
+                logger.LogInformation("Content reviewed for plan {PlanId} chapter {Order} ({Original}b -> {Reviewed}b)",
+                    plan.id, chapter.Order, generatedHtml.Length, reviewed.Length);
+                return reviewed;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Content review pass crashed for plan {PlanId} chapter {Order}. Saving original content.", plan.id, chapter.Order);
+                return generatedHtml;
+            }
         }
 
         private async Task GenerateQuizAsync(
