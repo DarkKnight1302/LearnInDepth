@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LearnInDepth | AI Personal Deep Learning Platform</title>
+  <meta name="description" content="State-of-the-art AI-powered technical learning platform with interactive courses, quizzes, and code assignments.">
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- CSS -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="dark-theme">
+  <!-- Background Glow & Particle Effects -->
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="bg-glow bg-glow-3"></div>
+
+  <!-- Header / Navigation Bar -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand" id="brandBtn">
+        <div class="logo-icon">
+          <span class="logo-spark">✨</span>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">LearnIn<span class="gradient-text">Depth</span></span>
+          <span class="brand-tag">AI Technical Engine</span>
+        </div>
+      </div>
+
+      <nav class="nav-links">
+        <button class="nav-btn active" id="navDashboardBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Dashboard
+        </button>
+        <button class="nav-btn" id="navTopicsBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          My Topics
+        </button>
+      </nav>
+
+      <div class="header-actions">
+        <div class="api-status-badge" id="apiStatusBadge" title="API Status">
+          <span class="status-dot online"></span>
+          <span class="status-label">Backend Connected</span>
+        </div>
+
+        <div class="user-profile-menu" id="userProfileMenu">
+          <button class="profile-btn" id="profileBtn">
+            <div class="avatar-circle" id="avatarText">U</div>
+            <span class="user-email-text" id="userEmailText">Guest User</span>
+            <svg class="chevron-down" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="profile-dropdown hidden" id="profileDropdown">
+            <div class="dropdown-header">
+              <span class="dropdown-title">Logged in as</span>
+              <span class="dropdown-email" id="dropdownEmail">guest@learnindepth.local</span>
+            </div>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" id="switchAccountBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+              Sign In / Change Email
+            </button>
+            <button class="dropdown-item danger" id="logoutBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Views Container -->
+  <main class="app-main">
+
+    <!-- VIEW 1: DASHBOARD / HERO & TOPIC CREATION -->
+    <section class="view-section active" id="viewDashboard">
+      <div class="hero-card glass-panel">
+        <div class="hero-badge">
+          <span class="pulse-dot"></span> Next-Gen AI Technical Learning
+        </div>
+        <h1 class="hero-title">Master Any Technical Topic <span class="gradient-text">In Depth</span></h1>
+        <p class="hero-subtitle">Generate comprehensive multi-chapter courses complete with deep-dive concepts, real-world interview focus, interactive quizzes, and hands-on coding assignments evaluated by AI.</p>
+
+        <form class="topic-form" id="topicForm">
+          <div class="input-wrapper">
+            <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="topicInput" placeholder="What do you want to master today? (e.g. System Design & Microservices, Rust Async Runtime...)" maxlength="200" required autocomplete="off">
+            <button type="submit" class="submit-topic-btn" id="submitTopicBtn">
+              <span>Generate Course</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+          </div>
+        </form>
+
+        <div class="topic-prompts">
+          <span class="prompts-label">Popular Topics:</span>
+          <div class="prompt-pills" id="promptPills">
+            <button class="pill-btn" data-topic="System Design & Scalable Architectures">🏗️ System Design</button>
+            <button class="pill-btn" data-topic="Rust Memory Safety & Concurrency">🦀 Rust Memory & Async</button>
+            <button class="pill-btn" data-topic="PostgreSQL Storage Engine & Indexing">🐘 Postgres Internals</button>
+            <button class="pill-btn" data-topic="React Fiber Architecture & Concurrent Mode">⚛️ React Fiber</button>
+            <button class="pill-btn" data-topic="Distributed Consensus & Raft Protocol">⚡ Raft Consensus</button>
+            <button class="pill-btn" data-topic="Transformer Models & LLM Architecture">🧠 Transformer Models</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Topics Grid Section -->
+      <div class="dashboard-section">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Your Learning Library</h2>
+            <p class="section-subtitle">Manage and resume your generated learning paths</p>
+          </div>
+          <div class="filter-controls">
+            <div class="search-box">
+              <input type="text" id="librarySearchInput" placeholder="Filter topics...">
+            </div>
+            <div class="filter-tabs">
+              <button class="filter-chip active" data-filter="all">All</button>
+              <button class="filter-chip" data-filter="Ready">Ready</button>
+              <button class="filter-chip" data-filter="Generating">Generating</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="topics-grid" id="topicsGrid">
+          <!-- Skeleton Loaders rendered dynamically -->
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: REAL-TIME GENERATION STATUS MONITOR -->
+    <section class="view-section" id="viewStatus">
+      <div class="status-container glass-panel">
+        <div class="status-header">
+          <button class="back-link-btn" id="statusBackBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back to Library
+          </button>
+          <div class="status-live-pill" id="statusLiveBadge">
+            <span class="spinner-sm"></span> Generating Course...
+          </div>
+        </div>
+
+        <div class="status-hero">
+          <h1 class="status-topic-name" id="statusTopicName">System Design & Scalable Architectures</h1>
+          <p class="status-slug-sub" id="statusSlugText">Slug: system-design-scalable-architectures</p>
+
+          <div class="progress-ring-container">
+            <div class="progress-bar-outer">
+              <div class="progress-bar-inner" id="statusProgressBar" style="width: 0%"></div>
+            </div>
+            <div class="progress-meta">
+              <span class="progress-pct-text" id="statusPctText">0% Completed</span>
+              <span class="progress-chapter-count" id="statusChapterCount">0 / 0 Chapters Ready</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="chapters-status-list" id="chaptersStatusList">
+          <!-- Dynamic Chapter status rows -->
+        </div>
+
+        <div class="status-actions-footer">
+          <button class="secondary-btn" id="refreshStatusBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh Status
+          </button>
+          <button class="primary-btn hidden" id="openPlanFromStatusBtn">
+            View Learning Plan
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 3: COURSE PLAN OUTLINE -->
+    <section class="view-section" id="viewPlan">
+      <div class="plan-header-card glass-panel">
+        <button class="back-link-btn" id="planBackBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          Back to Dashboard
+        </button>
+        <div class="plan-title-row">
+          <div>
+            <span class="plan-badge-tag" id="planStatusBadge">Ready</span>
+            <h1 class="plan-title" id="planTopicTitle">Loading Plan...</h1>
+            <p class="plan-meta" id="planMetaText">Created: -- | Total Chapters: --</p>
+          </div>
+          <div class="plan-progress-box">
+            <div class="radial-score-box">
+              <span class="radial-num" id="planProgressPct">0%</span>
+              <span class="radial-label">Mastery</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chapters-outline-grid" id="chaptersOutlineGrid">
+        <!-- Rendered Chapter Outline Cards -->
+      </div>
+    </section>
+
+    <!-- VIEW 4: CHAPTER WORKSPACE (READER + QUIZ + ASSIGNMENT) -->
+    <section class="view-section" id="viewWorkspace">
+      <div class="workspace-layout">
+        <!-- Left Sidebar Navigator -->
+        <aside class="workspace-sidebar glass-panel">
+          <div class="sidebar-header">
+            <button class="sidebar-back-btn" id="workspaceBackBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+              Course Overview
+            </button>
+            <h3 class="sidebar-topic-title" id="sidebarTopicTitle">Topic Title</h3>
+          </div>
+          <div class="sidebar-chapter-list" id="sidebarChapterList">
+            <!-- Chapter list navigation items -->
+          </div>
+        </aside>
+
+        <!-- Right Main Workspace -->
+        <div class="workspace-content-area glass-panel">
+          <!-- Chapter Header Bar -->
+          <div class="chapter-top-bar">
+            <div class="chapter-title-meta">
+              <span class="chapter-num-badge" id="chapterNumBadge">Chapter 1</span>
+              <h2 class="chapter-main-title" id="chapterMainTitle">Chapter Title</h2>
+            </div>
+
+            <!-- 3 Workspace Tabs -->
+            <div class="workspace-tabs">
+              <button class="ws-tab-btn active" id="tabContentBtn" data-tab="content">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                1. Deep Dive Content
+              </button>
+              <button class="ws-tab-btn" id="tabQuizBtn" data-tab="quiz">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                2. Interactive Quiz
+              </button>
+              <button class="ws-tab-btn" id="tabAssignmentBtn" data-tab="assignment">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                3. Coding Assignment
+              </button>
+            </div>
+          </div>
+
+          <!-- TAB PANEL 1: CONTENT READER -->
+          <div class="ws-tab-panel active" id="panelContent">
+            <div class="reader-container" id="readerContainer">
+              <div class="reader-loading-spinner" id="readerSpinner">
+                <div class="spinner-lg"></div>
+                <p>Fetching detailed chapter content...</p>
+              </div>
+              <div class="reader-html-body" id="readerHtmlBody"></div>
+            </div>
+            <div class="reader-footer">
+              <button class="secondary-btn" id="prevChapterBtn">← Previous Chapter</button>
+              <button class="primary-btn" id="proceedToQuizBtn">
+                Proceed to Quiz →
+              </button>
+            </div>
+          </div>
+
+          <!-- TAB PANEL 2: INTERACTIVE QUIZ -->
+          <div class="ws-tab-panel" id="panelQuiz">
+            <div class="quiz-container" id="quizContainer">
+              <div class="quiz-header-bar">
+                <div>
+                  <h3 class="quiz-title" id="quizTitle">Chapter Knowledge Verification</h3>
+                  <span class="quiz-subtitle">Answer all questions to test your understanding</span>
+                </div>
+                <div class="quiz-score-badge hidden" id="quizHeaderScore">
+                  Passed: 100%
+                </div>
+              </div>
+
+              <form class="quiz-form" id="quizForm">
+                <div class="quiz-questions-list" id="quizQuestionsList">
+                  <!-- Dynamic Question Cards -->
+                </div>
+                <div class="quiz-submit-bar">
+                  <button type="submit" class="primary-btn" id="submitQuizBtn">
+                    Submit Quiz Answers
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- TAB PANEL 3: CODING ASSIGNMENT & AI IDE -->
+          <div class="ws-tab-panel" id="panelAssignment">
+            <div class="assignment-layout">
+              <!-- Left: Problem & Tasks -->
+              <div class="problem-panel glass-card">
+                <h3 class="assign-title" id="assignTitle">Assignment Title</h3>
+                <div class="problem-statement-box" id="problemStatementBox">
+                  <p class="problem-text" id="assignProblemText">Problem description...</p>
+                </div>
+
+                <div class="assign-section">
+                  <h4 class="assign-subhead">📋 Required Tasks</h4>
+                  <ul class="tasks-checklist" id="assignTasksList"></ul>
+                </div>
+
+                <div class="assign-section">
+                  <h4 class="assign-subhead">🎯 Expected Outcome</h4>
+                  <p class="outcome-box" id="assignExpectedOutcome"></p>
+                </div>
+
+                <div class="assign-section">
+                  <details class="hints-accordion">
+                    <summary class="hints-summary">💡 Need a Hint? Click to reveal hints</summary>
+                    <ul class="hints-list" id="assignHintsList"></ul>
+                  </details>
+                </div>
+              </div>
+
+              <!-- Right: Interactive Code Studio -->
+              <div class="editor-panel glass-card">
+                <div class="editor-toolbar">
+                  <span class="editor-label">💻 Solution Studio</span>
+                  <div class="editor-tools">
+                    <button class="editor-tool-btn" id="loadSampleCodeBtn" title="Load starter template">Sample Code</button>
+                    <button class="editor-tool-btn" id="clearCodeBtn" title="Clear solution">Clear</button>
+                    <button class="editor-tool-btn" id="copyCodeBtn" title="Copy solution">Copy</button>
+                  </div>
+                </div>
+
+                <div class="editor-textarea-wrapper">
+                  <textarea id="solutionTextarea" placeholder="// Write your solution or code implementation here...&#10;// Include key design decisions, logic, and code structures." spellcheck="false"></textarea>
+                </div>
+
+                <div class="editor-footer">
+                  <span class="char-counter" id="charCounter">0 / 50000 chars</span>
+                  <button class="primary-btn glow-btn" id="submitSolutionBtn">
+                    <span class="btn-text">Submit Solution for AI Evaluation</span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- AUTHENTICATION & LOGIN MODAL -->
+  <div class="modal-overlay hidden" id="authModal">
+    <div class="modal-card glass-panel">
+      <button class="modal-close-btn" id="authModalClose">&times;</button>
+      <div class="auth-header">
+        <div class="logo-icon-lg">✨</div>
+        <h2 class="auth-title">Welcome to LearnInDepth</h2>
+        <p class="auth-subtitle">Sign in with email OTP or start in instant Quick Demo Mode</p>
+      </div>
+
+      <div class="auth-step" id="authStep1">
+        <div class="form-group">
+          <label for="authEmailInput">Email Address</label>
+          <input type="email" id="authEmailInput" placeholder="your.name@example.com" autocomplete="email">
+        </div>
+        <button class="primary-btn w-full" id="sendOtpBtn">Send Verification OTP</button>
+      </div>
+
+      <div class="auth-step hidden" id="authStep2">
+        <div class="form-group">
+          <label for="authOtpInput">Enter 6-Digit OTP Code</label>
+          <input type="text" id="authOtpInput" placeholder="123456" maxlength="10" autocomplete="one-time-code">
+        </div>
+        <button class="primary-btn w-full" id="verifyOtpBtn">Verify & Sign In</button>
+        <button class="link-btn w-full mt-2" id="backToEmailBtn">← Back to Email</button>
+      </div>
+
+      <div class="auth-divider"><span>OR</span></div>
+
+      <button class="demo-btn w-full" id="quickDemoBtn">
+        <span class="demo-icon">⚡</span>
+        <span>Instant Quick Access (Demo User)</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- QUIZ RESULTS MODAL -->
+  <div class="modal-overlay hidden" id="quizResultModal">
+    <div class="modal-card glass-panel modal-lg">
+      <button class="modal-close-btn" id="quizModalClose">&times;</button>
+      <div class="quiz-modal-header">
+        <div class="verdict-ring-box" id="quizVerdictRing">
+          <span class="verdict-score" id="quizScoreText">100%</span>
+        </div>
+        <div>
+          <h2 class="quiz-modal-title" id="quizVerdictTitle">Quiz Completed!</h2>
+          <p class="quiz-modal-subtitle" id="quizVerdictSubtitle">You scored 5 out of 5 correct answers</p>
+        </div>
+      </div>
+
+      <div class="quiz-breakdown-list" id="quizBreakdownList">
+        <!-- Result explanation items -->
+      </div>
+
+      <div class="modal-footer">
+        <button class="secondary-btn" id="retakeQuizBtn">Retake Quiz</button>
+        <button class="primary-btn" id="quizModalProceedBtn">Proceed to Assignment →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ASSIGNMENT EVALUATION FEEDBACK MODAL -->
+  <div class="modal-overlay hidden" id="feedbackModal">
+    <div class="modal-card glass-panel modal-lg">
+      <button class="modal-close-btn" id="feedbackModalClose">&times;</button>
+      <div class="feedback-modal-header">
+        <div class="feedback-score-badge" id="feedbackScoreBadge">Score: 95/100</div>
+        <div>
+          <span class="verdict-chip" id="feedbackVerdictChip">Excellent</span>
+          <h2 class="feedback-modal-title">AI Solution Review</h2>
+        </div>
+      </div>
+
+      <div class="feedback-sections-grid">
+        <div class="feedback-card well-card">
+          <h4>✅ What Went Well</h4>
+          <ul id="feedbackWellList"></ul>
+        </div>
+
+        <div class="feedback-card corrections-card">
+          <h4>💡 Areas for Improvement & Corrections</h4>
+          <ul id="feedbackCorrectionsList"></ul>
+        </div>
+
+        <div class="feedback-card tips-card">
+          <h4>🎯 Interview & Senior Engineer Tips</h4>
+          <p id="feedbackTipsText"></p>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="primary-btn" id="closeFeedbackModalBtn">Continue Learning</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- JavaScript Modules -->
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/status.js"></script>
+  <script src="js/reader.js"></script>
+  <script src="js/quiz.js"></script>
+  <script src="js/assignment.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
