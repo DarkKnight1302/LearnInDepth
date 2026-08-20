@@ -1,5 +1,6 @@
 using LearnInDepth.Models;
 using LearnInDepth.Repositories;
+using NewHorizonLib.Services;
 using NewHorizonLib.Services.Interfaces;
 using System.Security.Claims;
 
@@ -7,7 +8,7 @@ namespace LearnInDepth.Handlers
 {
     public class SignInHandler : ISignInHandler
     {
-        private readonly IEmailService emailService;
+        private readonly ResendEmailService emailService;
         private readonly IOtpService otpService;
         private readonly ITokenService tokenService;
         private readonly IUserRepository userRepository;
@@ -15,7 +16,7 @@ namespace LearnInDepth.Handlers
         private readonly string senderName;
 
         public SignInHandler(
-            IEmailService emailService,
+            ResendEmailService emailService,
             IOtpService otpService,
             ITokenService tokenService,
             IUserRepository userRepository,
@@ -25,9 +26,10 @@ namespace LearnInDepth.Handlers
             this.otpService = otpService;
             this.tokenService = tokenService;
             this.userRepository = userRepository;
-            // Default sender is the verified Brevo sender already used by other apps on this account;
-            // override via config once a learnindepth sender/domain is verified.
-            this.senderEmail = configuration["Email:SenderAddress"] ?? "noreply@hyderabadt20championship.online";
+            // Resend is used (Brevo account is in sandbox and does not deliver to external addresses).
+            // Default sender uses the Resend-verified mediavoyager.in domain; override once a
+            // learnindepth domain is verified in Resend.
+            this.senderEmail = configuration["Email:SenderAddress"] ?? "noreply@mediavoyager.in";
             this.senderName = configuration["Email:SenderName"] ?? "Learn-In-Depth";
         }
 
