@@ -57,11 +57,21 @@ namespace LearnInDepth.Services.Generation
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ConfigureAwait(false);
 
                 ILearningPlanRepository planRepository = serviceProvider.GetRequiredService<ILearningPlanRepository>();
-                List<LearningPlan> generatingPlans = await planRepository.ListGeneratingAsync().ConfigureAwait(false);
-                foreach (LearningPlan plan in generatingPlans)
+                List<LearningPlan> plans = await planRepository.ListAllAsync().ConfigureAwait(false);
+                foreach (LearningPlan plan in plans)
                 {
-                    logger.LogInformation("Re-enqueueing stale generating plan {PlanId}", plan.id);
-                    await channel.EnqueueAsync(new GenerationWorkItem { PlanId = plan.id }, stoppingToken).ConfigureAwait(false);
+                    if (plan.Status == GenerationStatus.Generating && plan.Chapters.Count == 0)
+                    {
+                        logger.LogInformation("Re-enqueueing stale generating plan {PlanId}", plan.id);
+                        await channel.EnqueueAsync(new GenerationWorkItem { PlanId = plan.id }, stoppingToken).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    foreach (ChapterOutline chapter in plan.Chapters.Where(HasUnfinishedArtifact))
+                    {
+                        logger.LogInformation("Re-enqueueing stale chapter {Order} of plan {PlanId}", chapter.Order, plan.id);
+                        await channel.EnqueueAsync(new GenerationWorkItem { PlanId = plan.id, ChapterOrder = chapter.Order }, stoppingToken).ConfigureAwait(false);
+                    }
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -73,5 +83,10 @@ namespace LearnInDepth.Services.Generation
                 logger.LogError(ex, "Stale plan recovery scan failed");
             }
         }
+
+        private static bool HasUnfinishedArtifact(ChapterOutline c) =>
+            c.ContentStatus == ArtifactStatus.Pending || c.ContentStatus == ArtifactStatus.Generating ||
+            c.QuizStatus == ArtifactStatus.Pending || c.QuizStatus == ArtifactStatus.Generating ||
+            c.AssignmentStatus == ArtifactStatus.Pending || c.AssignmentStatus == ArtifactStatus.Generating;
     }
 }

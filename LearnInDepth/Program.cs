@@ -1,12 +1,14 @@
 using LearnInDepth;
 using LearnInDepth.Clients;
 using LearnInDepth.Handlers;
+using LearnInDepth.Jobs;
 using LearnInDepth.Repositories;
 using LearnInDepth.Services;
 using LearnInDepth.Services.Generation;
 using LearnInDepth.Services.Interfaces;
 using NewHorizonLib;
 using NewHorizonLib.Extensions;
+using Quartz;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -50,6 +52,18 @@ builder.Services.AddSingleton<IGenerationChannel, GenerationChannel>();
 builder.Services.AddSingleton<IGenerationOrchestrator, GenerationOrchestrator>();
 builder.Services.AddSingleton<IChapterGenerator, ChapterGenerator>();
 builder.Services.AddHostedService<GenerationBackgroundService>();
+
+// Periodic recovery: restart any generation stuck in Pending/Generating (e.g. after an app restart).
+builder.Services.AddQuartz(q =>
+{
+    var jobKey = new JobKey("GenerationRecoveryJob");
+    q.AddJob<GenerationRecoveryJob>(opts => opts.WithIdentity(jobKey));
+    q.AddTrigger(opts => opts
+        .ForJob(jobKey)
+        .WithIdentity("GenerationRecoveryJob-trigger")
+        .WithCronSchedule("0 */10 * * * ?")); // every 10 minutes
+});
+builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
 
 builder.Services.AddSingleton<ICosmosCollectionBootstrapper, CosmosCollectionBootstrapper>();
 
