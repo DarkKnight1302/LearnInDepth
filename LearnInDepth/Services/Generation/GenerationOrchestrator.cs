@@ -225,6 +225,8 @@ namespace LearnInDepth.Services.Generation
             }
 
             plan.Chapters = chapters;
+            plan.GenerationUpdatedAtUtc = DateTime.UtcNow;
+            foreach (var ch in chapters) ch.LastUpdateUtc = DateTime.UtcNow;
             await planRepository.UpsertAsync(plan).ConfigureAwait(false);
             logger.LogInformation("Plan {PlanId} outline saved with {Count} chapters", plan.id, chapters.Count);
             return true;
@@ -246,6 +248,7 @@ namespace LearnInDepth.Services.Generation
                 plan.Error = string.Empty;
                 plan.CompletedAtUtc = DateTime.UtcNow;
             }
+            plan.GenerationUpdatedAtUtc = DateTime.UtcNow;
             await planRepository.UpsertAsync(plan).ConfigureAwait(false);
             logger.LogInformation("Plan {PlanId} finalized with status {Status}", plan.id, plan.Status);
         }

@@ -314,6 +314,9 @@ namespace LearnInDepth.Services.Generation
                     case ArtifactKind.Assignment: chapter.AssignmentStatus = status; break;
                 }
                 chapter.Error = status == ArtifactStatus.Failed ? error : string.Empty;
+                // Record progress so recovery jobs can tell active generation apart from stuck artifacts.
+                chapter.LastUpdateUtc = DateTime.UtcNow;
+                plan.GenerationUpdatedAtUtc = DateTime.UtcNow;
                 await planRepository.UpsertAsync(plan).ConfigureAwait(false);
             }
             finally

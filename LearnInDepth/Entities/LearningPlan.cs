@@ -29,6 +29,7 @@ namespace LearnInDepth.Models
         public string CreatedBy { get; set; } = string.Empty;
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
         public DateTime? CompletedAtUtc { get; set; }
+        public DateTime GenerationUpdatedAtUtc { get; set; } = DateTime.UtcNow;
         public string Error { get; set; } = string.Empty;
     }
 
@@ -42,6 +43,7 @@ namespace LearnInDepth.Models
         public ArtifactStatus ContentStatus { get; set; } = ArtifactStatus.Pending;
         public ArtifactStatus QuizStatus { get; set; } = ArtifactStatus.Pending;
         public ArtifactStatus AssignmentStatus { get; set; } = ArtifactStatus.Pending;
+        public DateTime LastUpdateUtc { get; set; } = DateTime.UtcNow;
         public string Error { get; set; } = string.Empty;
     }
 }
