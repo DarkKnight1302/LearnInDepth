@@ -72,6 +72,8 @@ app.UseCors("AllowAll");
 app.UseRateLimiting();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.MapControllers();
 
 // Create database/containers before serving traffic (Nuggets pattern).

@@ -21,6 +21,8 @@ namespace LearnInDepth.Services.Generation
         private readonly string assignmentModel;
         private readonly int contentMaxTokens;
         private readonly int artifactMaxTokens;
+        private readonly int maxArtifactAttempts;
+        private readonly int artifactRetryDelaySeconds;
 
         public ChapterGenerator(
             IOpenCodeCompletionClient llmClient,
@@ -41,7 +43,9 @@ namespace LearnInDepth.Services.Generation
             this.quizModel = configuration["OpenCode:QuizModel"] ?? "deepseek-v4-flash";
             this.assignmentModel = configuration["OpenCode:AssignmentModel"] ?? "deepseek-v4-flash";
             this.contentMaxTokens = configuration.GetValue<int?>("OpenCode:ContentMaxTokens") ?? 16000;
-            this.artifactMaxTokens = configuration.GetValue<int?>("OpenCode:ArtifactMaxTokens") ?? 4096;
+            this.artifactMaxTokens = configuration.GetValue<int?>("OpenCode:ArtifactMaxTokens") ?? 8192;
+            this.maxArtifactAttempts = configuration.GetValue<int?>("OpenCode:MaxArtifactAttempts") ?? 3;
+            this.artifactRetryDelaySeconds = configuration.GetValue<int?>("OpenCode:ArtifactRetryDelaySeconds") ?? 5;
         }
 
         public async Task GenerateChapterAsync(
@@ -72,43 +76,40 @@ namespace LearnInDepth.Services.Generation
 
             await SetArtifactStatusAsync(plan, chapter, ArtifactKind.Content, ArtifactStatus.Generating, string.Empty, planLock).ConfigureAwait(false);
 
-            try
-            {
-                CompletionResult result = await llmClient.SendPromptTextAsync(
-                    contentModel,
-                    ChapterContentPromptBuilder.SystemPrompt,
-                    ChapterContentPromptBuilder.BuildUserPrompt(plan.Topic, plan, chapter),
-                    temperature: 0.7,
-                    maxTokens: contentMaxTokens,
-                    cancellationToken).ConfigureAwait(false);
-
-                if (!result.IsSuccess || string.IsNullOrWhiteSpace(result.Text))
+            (bool success, string html) = await ExecuteWithRetryAsync(
+                "content", plan, chapter, ArtifactKind.Content, planLock,
+                attempt => TemperatureForAttempt(0.7, attempt),
+                async (attempt, ct) =>
                 {
-                    throw new InvalidOperationException($"Content generation failed: {result.ErrorMessage}");
-                }
+                    CompletionResult result = await llmClient.SendPromptTextAsync(
+                        contentModel,
+                        ChapterContentPromptBuilder.SystemPrompt,
+                        ChapterContentPromptBuilder.BuildUserPrompt(plan.Topic, plan, chapter),
+                        temperature: TemperatureForAttempt(0.7, attempt),
+                        maxTokens: contentMaxTokens,
+                        cancellationToken: ct).ConfigureAwait(false);
 
-                string html = SanitizeHtml(result.Text);
-                var content = new ChapterContent
-                {
-                    id = ChapterContentRepository.BuildId(plan.id, chapter.Order),
-                    LearningPlanId = plan.id,
-                    Order = chapter.Order,
-                    Title = chapter.Title,
-                    HtmlContent = html,
-                    Model = result.ModelUsed,
-                    GeneratedAtUtc = DateTime.UtcNow
-                };
-                await contentRepository.UpsertAsync(content).ConfigureAwait(false);
+                    if (!result.IsSuccess || string.IsNullOrWhiteSpace(result.Text))
+                    {
+                        throw new InvalidOperationException($"Content generation failed: {result.ErrorMessage}");
+                    }
 
-                await SetArtifactStatusAsync(plan, chapter, ArtifactKind.Content, ArtifactStatus.Ready, string.Empty, planLock).ConfigureAwait(false);
-                return BuildExcerpt(html);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogError(ex, "Content generation failed for plan {PlanId} chapter {Order}", plan.id, chapter.Order);
-                await SetArtifactStatusAsync(plan, chapter, ArtifactKind.Content, ArtifactStatus.Failed, ex.Message, planLock).ConfigureAwait(false);
-                return string.Empty;
-            }
+                    string html = SanitizeHtml(result.Text);
+                    await contentRepository.UpsertAsync(new ChapterContent
+                    {
+                        id = ChapterContentRepository.BuildId(plan.id, chapter.Order),
+                        LearningPlanId = plan.id,
+                        Order = chapter.Order,
+                        Title = chapter.Title,
+                        HtmlContent = html,
+                        Model = result.ModelUsed,
+                        GeneratedAtUtc = DateTime.UtcNow
+                    }).ConfigureAwait(false);
+                    return html;
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            return success ? BuildExcerpt(html) : string.Empty;
         }
 
         private async Task GenerateQuizAsync(
@@ -123,31 +124,29 @@ namespace LearnInDepth.Services.Generation
 
             await SetArtifactStatusAsync(plan, chapter, ArtifactKind.Quiz, ArtifactStatus.Generating, string.Empty, planLock).ConfigureAwait(false);
 
-            try
-            {
-                CompletionResult<QuizGenerationResponse> result = await llmClient.SendPromptJsonAsync<QuizGenerationResponse>(
-                    quizModel,
-                    QuizPromptBuilder.SystemPrompt,
-                    QuizPromptBuilder.BuildUserPrompt(plan.Topic, chapter, contentExcerpt),
-                    temperature: 0.5,
-                    maxTokens: artifactMaxTokens,
-                    cancellationToken).ConfigureAwait(false);
-
-                if (!result.IsSuccess || result.Data == null)
+            await ExecuteWithRetryAsync(
+                "quiz", plan, chapter, ArtifactKind.Quiz, planLock,
+                attempt => TemperatureForAttempt(0.5, attempt),
+                async (attempt, ct) =>
                 {
-                    throw new InvalidOperationException($"Quiz generation failed: {result.ErrorMessage}");
-                }
+                    CompletionResult<QuizGenerationResponse> result = await llmClient.SendPromptJsonAsync<QuizGenerationResponse>(
+                        quizModel,
+                        QuizPromptBuilder.SystemPrompt,
+                        QuizPromptBuilder.BuildUserPrompt(plan.Topic, chapter, contentExcerpt),
+                        temperature: TemperatureForAttempt(0.5, attempt),
+                        maxTokens: artifactMaxTokens,
+                        cancellationToken: ct).ConfigureAwait(false);
 
-                ChapterQuiz quiz = BuildQuiz(plan, chapter, result.Data);
-                await quizRepository.UpsertAsync(quiz).ConfigureAwait(false);
+                    if (!result.IsSuccess || result.Data == null)
+                    {
+                        throw new InvalidOperationException($"Quiz generation failed: {result.ErrorMessage}");
+                    }
 
-                await SetArtifactStatusAsync(plan, chapter, ArtifactKind.Quiz, ArtifactStatus.Ready, string.Empty, planLock).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogError(ex, "Quiz generation failed for plan {PlanId} chapter {Order}", plan.id, chapter.Order);
-                await SetArtifactStatusAsync(plan, chapter, ArtifactKind.Quiz, ArtifactStatus.Failed, ex.Message, planLock).ConfigureAwait(false);
-            }
+                    ChapterQuiz quiz = BuildQuiz(plan, chapter, result.Data);
+                    await quizRepository.UpsertAsync(quiz).ConfigureAwait(false);
+                    return true;
+                },
+                cancellationToken).ConfigureAwait(false);
         }
 
         private async Task GenerateAssignmentAsync(
@@ -162,31 +161,89 @@ namespace LearnInDepth.Services.Generation
 
             await SetArtifactStatusAsync(plan, chapter, ArtifactKind.Assignment, ArtifactStatus.Generating, string.Empty, planLock).ConfigureAwait(false);
 
-            try
-            {
-                CompletionResult<AssignmentGenerationResponse> result = await llmClient.SendPromptJsonAsync<AssignmentGenerationResponse>(
-                    assignmentModel,
-                    AssignmentPromptBuilder.SystemPrompt,
-                    AssignmentPromptBuilder.BuildUserPrompt(plan.Topic, chapter, contentExcerpt),
-                    temperature: 0.6,
-                    maxTokens: artifactMaxTokens,
-                    cancellationToken).ConfigureAwait(false);
-
-                if (!result.IsSuccess || result.Data == null)
+            await ExecuteWithRetryAsync(
+                "assignment", plan, chapter, ArtifactKind.Assignment, planLock,
+                attempt => TemperatureForAttempt(0.6, attempt),
+                async (attempt, ct) =>
                 {
-                    throw new InvalidOperationException($"Assignment generation failed: {result.ErrorMessage}");
+                    CompletionResult<AssignmentGenerationResponse> result = await llmClient.SendPromptJsonAsync<AssignmentGenerationResponse>(
+                        assignmentModel,
+                        AssignmentPromptBuilder.SystemPrompt,
+                        AssignmentPromptBuilder.BuildUserPrompt(plan.Topic, chapter, contentExcerpt),
+                        temperature: TemperatureForAttempt(0.6, attempt),
+                        maxTokens: artifactMaxTokens,
+                        cancellationToken: ct).ConfigureAwait(false);
+
+                    if (!result.IsSuccess || result.Data == null)
+                    {
+                        throw new InvalidOperationException($"Assignment generation failed: {result.ErrorMessage}");
+                    }
+
+                    ChapterAssignment assignment = BuildAssignment(plan, chapter, result.Data);
+                    await assignmentRepository.UpsertAsync(assignment).ConfigureAwait(false);
+                    return true;
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Runs an artifact generation attempt up to MaxArtifactAttempts times with exponential backoff.
+        /// Only marks the artifact Failed after every attempt is exhausted. Status is set to Generating
+        /// before each attempt and Ready on the first success.
+        /// </summary>
+        private async Task<(bool Success, T Result)> ExecuteWithRetryAsync<T>(
+            string artifactName,
+            LearningPlan plan,
+            ChapterOutline chapter,
+            ArtifactKind kind,
+            SemaphoreSlim planLock,
+            Func<int, double> temperatureForAttempt,
+            Func<int, CancellationToken, Task<T>> attempt,
+            CancellationToken cancellationToken)
+        {
+            string lastError = string.Empty;
+
+            for (int attemptNumber = 1; attemptNumber <= maxArtifactAttempts; attemptNumber++)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return (false, default);
                 }
 
-                ChapterAssignment assignment = BuildAssignment(plan, chapter, result.Data);
-                await assignmentRepository.UpsertAsync(assignment).ConfigureAwait(false);
+                try
+                {
+                    T result = await attempt(attemptNumber, cancellationToken).ConfigureAwait(false);
+                    await SetArtifactStatusAsync(plan, chapter, kind, ArtifactStatus.Ready, string.Empty, planLock).ConfigureAwait(false);
+                    logger.LogInformation("Artifact '{Artifact}' ready for plan {PlanId} chapter {Order} on attempt {Attempt}",
+                        artifactName, plan.id, chapter.Order, attemptNumber);
+                    return (true, result);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    lastError = ex.Message;
+                    logger.LogWarning("Artifact '{Artifact}' attempt {Attempt}/{MaxAttempts} failed for plan {PlanId} chapter {Order}: {Error}",
+                        artifactName, attemptNumber, maxArtifactAttempts, plan.id, chapter.Order, ex.Message);
 
-                await SetArtifactStatusAsync(plan, chapter, ArtifactKind.Assignment, ArtifactStatus.Ready, string.Empty, planLock).ConfigureAwait(false);
+                    if (attemptNumber < maxArtifactAttempts)
+                    {
+                        // Keep status visible as Generating while backing off before the next attempt.
+                        await SetArtifactStatusAsync(plan, chapter, kind, ArtifactStatus.Generating, string.Empty, planLock).ConfigureAwait(false);
+                        TimeSpan delay = TimeSpan.FromSeconds(artifactRetryDelaySeconds * Math.Pow(2, attemptNumber - 1));
+                        logger.LogInformation("Retrying '{Artifact}' in {DelaySeconds}s (attempt {NextAttempt})",
+                            artifactName, delay.TotalSeconds, attemptNumber + 1);
+                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    }
+                }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogError(ex, "Assignment generation failed for plan {PlanId} chapter {Order}", plan.id, chapter.Order);
-                await SetArtifactStatusAsync(plan, chapter, ArtifactKind.Assignment, ArtifactStatus.Failed, ex.Message, planLock).ConfigureAwait(false);
-            }
+
+            logger.LogError("Artifact '{Artifact}' exhausted all {MaxAttempts} attempts for plan {PlanId} chapter {Order}",
+                artifactName, maxArtifactAttempts, plan.id, chapter.Order);
+            await SetArtifactStatusAsync(plan, chapter, kind, ArtifactStatus.Failed, lastError, planLock).ConfigureAwait(false);
+            return (false, default);
         }
 
         private async Task SetArtifactStatusAsync(
@@ -214,6 +271,9 @@ namespace LearnInDepth.Services.Generation
                 planLock.Release();
             }
         }
+
+        private static double TemperatureForAttempt(double baseTemperature, int attempt) =>
+            Math.Min(1.0, baseTemperature + (attempt - 1) * 0.15);
 
         private static ChapterQuiz BuildQuiz(LearningPlan plan, ChapterOutline chapter, QuizGenerationResponse response)
         {

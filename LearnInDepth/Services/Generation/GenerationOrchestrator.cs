@@ -15,6 +15,7 @@ namespace LearnInDepth.Services.Generation
         private readonly string planModel;
         private readonly int planMaxTokens;
         private readonly int maxConcurrentChapters;
+        private readonly int maxSweepPasses;
 
         // Serializes generation runs per plan so duplicate work items cannot race.
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlanGates = new ConcurrentDictionary<string, SemaphoreSlim>();
@@ -33,6 +34,7 @@ namespace LearnInDepth.Services.Generation
             this.planModel = configuration["OpenCode:PlanModel"] ?? "kimi-k3";
             this.planMaxTokens = configuration.GetValue<int?>("OpenCode:PlanMaxTokens") ?? 4096;
             this.maxConcurrentChapters = configuration.GetValue<int?>("OpenCode:MaxConcurrentChapterGenerations") ?? 3;
+            this.maxSweepPasses = configuration.GetValue<int?>("OpenCode:MaxSweepPasses") ?? 2;
         }
 
         public async Task GenerateAsync(GenerationWorkItem workItem, CancellationToken cancellationToken)
@@ -83,8 +85,42 @@ namespace LearnInDepth.Services.Generation
             }
 
             await GenerateChaptersInParallelAsync(plan, plan.Chapters, cancellationToken).ConfigureAwait(false);
+            await RunConvergenceSweepsAsync(plan, cancellationToken).ConfigureAwait(false);
             await FinalizePlanStatusAsync(plan).ConfigureAwait(false);
         }
+
+        /// <summary>
+        /// Built-in retry sweep: after the initial generation pass, re-runs any chapters that still have
+        /// failed or pending artifacts (bounded by MaxSweepPasses). Generation is idempotent, so already-ready
+        /// artifacts are skipped. This lets transient LLM failures self-heal without manual intervention.
+        /// </summary>
+        private async Task RunConvergenceSweepsAsync(LearningPlan plan, CancellationToken cancellationToken)
+        {
+            for (int pass = 1; pass <= maxSweepPasses; pass++)
+            {
+                List<ChapterOutline> incomplete = plan.Chapters.Where(HasIncompleteArtifacts).ToList();
+                if (incomplete.Count == 0)
+                {
+                    return;
+                }
+
+                logger.LogInformation("Convergence sweep pass {Pass}/{MaxPasses}: retrying {Count} chapters with failed/pending artifacts for plan {PlanId}",
+                    pass, maxSweepPasses, incomplete.Count, plan.id);
+
+                await GenerateChaptersInParallelAsync(plan, incomplete, cancellationToken).ConfigureAwait(false);
+
+                // Stop early once everything is ready.
+                if (plan.Chapters.All(c => !HasIncompleteArtifacts(c)))
+                {
+                    return;
+                }
+            }
+        }
+
+        private static bool HasIncompleteArtifacts(ChapterOutline chapter) =>
+            chapter.ContentStatus != ArtifactStatus.Ready ||
+            chapter.QuizStatus != ArtifactStatus.Ready ||
+            chapter.AssignmentStatus != ArtifactStatus.Ready;
 
         private async Task GenerateSingleChapterAsync(LearningPlan plan, int chapterOrder, CancellationToken cancellationToken)
         {
