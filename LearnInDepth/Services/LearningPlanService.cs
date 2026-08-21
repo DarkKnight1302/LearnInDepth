@@ -135,7 +135,17 @@ namespace LearnInDepth.Services
                 return false;
             }
 
+            // Reflect the in-flight state immediately so the status page shows Generating
+            // instead of the stale Ready/Failed until the worker picks up the item.
+            if (chapter.ContentStatus == ArtifactStatus.Failed || chapter.ContentStatus == ArtifactStatus.Pending)
+                chapter.ContentStatus = ArtifactStatus.Generating;
+            if (chapter.QuizStatus == ArtifactStatus.Failed || chapter.QuizStatus == ArtifactStatus.Pending)
+                chapter.QuizStatus = ArtifactStatus.Generating;
+            if (chapter.AssignmentStatus == ArtifactStatus.Failed || chapter.AssignmentStatus == ArtifactStatus.Pending)
+                chapter.AssignmentStatus = ArtifactStatus.Generating;
+
             chapter.Error = string.Empty;
+            plan.Status = GenerationStatus.Generating;
             await planRepository.UpsertAsync(plan).ConfigureAwait(false);
             await generationChannel.EnqueueAsync(new GenerationWorkItem { PlanId = slug, ChapterOrder = order }).ConfigureAwait(false);
             logger.LogInformation("Enqueued retry for plan {PlanId} chapter {Order}", slug, order);

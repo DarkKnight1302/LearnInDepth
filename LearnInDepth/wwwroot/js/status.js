@@ -67,7 +67,10 @@ const StatusController = (function() {
       const statusData = await ApiClient.getTopicStatus(activeSlug);
       renderStatus(statusData);
 
-      if (statusData.status === 'Ready' || statusData.percentComplete === 100) {
+      const allChaptersReady = statusData.totalChapters > 0 &&
+        statusData.readyChapters === statusData.totalChapters;
+
+      if (allChaptersReady) {
         stopPolling();
         statusLiveBadge.innerHTML = `✅ Course Ready`;
         statusLiveBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
