@@ -251,24 +251,28 @@ namespace LearnInDepth.Services
                 return false;
             }
 
-            bool hasFailedArtifact =
-                chapter.ContentStatus == ArtifactStatus.Failed || chapter.ContentStatus == ArtifactStatus.Pending ||
-                chapter.QuizStatus == ArtifactStatus.Failed || chapter.QuizStatus == ArtifactStatus.Pending ||
-                chapter.AssignmentStatus == ArtifactStatus.Failed || chapter.AssignmentStatus == ArtifactStatus.Pending;
+            // Decide what actually needs regenerating from the real state of the artifact documents,
+            // not the persisted status flags - those can be stale (e.g. DB says Ready but the
+            // content/quiz/assignment document is missing, or vice versa).
+            Task<ChapterContent> contentTask = contentRepository.GetAsync(plan.id, order);
+            Task<ChapterQuiz> quizTask = quizRepository.GetAsync(plan.id, order);
+            Task<ChapterAssignment> assignmentTask = assignmentRepository.GetAsync(plan.id, order);
+            await Task.WhenAll(contentTask, quizTask, assignmentTask).ConfigureAwait(false);
 
-            if (!hasFailedArtifact)
+            bool needsContent = NeedsGeneration(contentTask.Result, chapter.ContentStatus, IsContentReady);
+            bool needsQuiz = NeedsGeneration(quizTask.Result, chapter.QuizStatus, IsQuizReady);
+            bool needsAssignment = NeedsGeneration(assignmentTask.Result, chapter.AssignmentStatus, IsAssignmentReady);
+
+            if (!needsContent && !needsQuiz && !needsAssignment)
             {
                 return false;
             }
 
             // Reflect the in-flight state immediately so the status page shows Generating
             // instead of the stale Ready/Failed until the worker picks up the item.
-            if (chapter.ContentStatus == ArtifactStatus.Failed || chapter.ContentStatus == ArtifactStatus.Pending)
-                chapter.ContentStatus = ArtifactStatus.Generating;
-            if (chapter.QuizStatus == ArtifactStatus.Failed || chapter.QuizStatus == ArtifactStatus.Pending)
-                chapter.QuizStatus = ArtifactStatus.Generating;
-            if (chapter.AssignmentStatus == ArtifactStatus.Failed || chapter.AssignmentStatus == ArtifactStatus.Pending)
-                chapter.AssignmentStatus = ArtifactStatus.Generating;
+            if (needsContent) chapter.ContentStatus = ArtifactStatus.Generating;
+            if (needsQuiz) chapter.QuizStatus = ArtifactStatus.Generating;
+            if (needsAssignment) chapter.AssignmentStatus = ArtifactStatus.Generating;
 
             chapter.Error = string.Empty;
             plan.Status = GenerationStatus.Generating;
@@ -276,6 +280,12 @@ namespace LearnInDepth.Services
             await generationChannel.EnqueueAsync(new GenerationWorkItem { PlanId = slug, ChapterOrder = order }).ConfigureAwait(false);
             logger.LogInformation("Enqueued retry for plan {PlanId} chapter {Order}", slug, order);
             return true;
+        }
+
+        private static bool NeedsGeneration<T>(T artifact, ArtifactStatus dbStatus, Func<T, bool> isReady)
+        {
+            // Regenerate when the document is missing or incomplete, or the persisted status says so.
+            return !isReady(artifact) || dbStatus == ArtifactStatus.Failed || dbStatus == ArtifactStatus.Pending;
         }
 
         public string NormalizeTopic(string topic)

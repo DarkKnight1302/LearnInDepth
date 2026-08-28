@@ -11,6 +11,9 @@ namespace LearnInDepth.Services.Generation
         private readonly ILearningPlanRepository planRepository;
         private readonly IOpenCodeCompletionClient llmClient;
         private readonly IChapterGenerator chapterGenerator;
+        private readonly IChapterContentRepository contentRepository;
+        private readonly IChapterQuizRepository quizRepository;
+        private readonly IChapterAssignmentRepository assignmentRepository;
         private readonly ILogger<GenerationOrchestrator> logger;
         private readonly string planModel;
         private readonly int planMaxTokens;
@@ -29,12 +32,18 @@ namespace LearnInDepth.Services.Generation
             ILearningPlanRepository planRepository,
             IOpenCodeCompletionClient llmClient,
             IChapterGenerator chapterGenerator,
+            IChapterContentRepository contentRepository,
+            IChapterQuizRepository quizRepository,
+            IChapterAssignmentRepository assignmentRepository,
             IConfiguration configuration,
             ILogger<GenerationOrchestrator> logger)
         {
             this.planRepository = planRepository;
             this.llmClient = llmClient;
             this.chapterGenerator = chapterGenerator;
+            this.contentRepository = contentRepository;
+            this.quizRepository = quizRepository;
+            this.assignmentRepository = assignmentRepository;
             this.logger = logger;
             this.planModel = configuration["OpenCode:PlanModel"] ?? "kimi-k3";
             this.planMaxTokens = configuration.GetValue<int?>("OpenCode:PlanMaxTokens") ?? 4096;
@@ -128,6 +137,24 @@ namespace LearnInDepth.Services.Generation
             chapter.QuizStatus != ArtifactStatus.Ready ||
             chapter.AssignmentStatus != ArtifactStatus.Ready;
 
+        /// <summary>
+        /// True only when the content, quiz and assignment documents for the chapter actually exist
+        /// and are complete. Uses the real documents as the source of truth instead of the persisted
+        /// status flags, which can be stale in either direction.
+        /// </summary>
+        private async Task<bool> AreAllArtifactsReadyAsync(string planId, int order)
+        {
+            Task<ChapterContent> contentTask = contentRepository.GetAsync(planId, order);
+            Task<ChapterQuiz> quizTask = quizRepository.GetAsync(planId, order);
+            Task<ChapterAssignment> assignmentTask = assignmentRepository.GetAsync(planId, order);
+            await Task.WhenAll(contentTask, quizTask, assignmentTask).ConfigureAwait(false);
+
+            return contentTask.Result != null && !string.IsNullOrWhiteSpace(contentTask.Result.HtmlContent)
+                && quizTask.Result != null && quizTask.Result.Questions.Count > 0
+                && assignmentTask.Result != null && !string.IsNullOrWhiteSpace(assignmentTask.Result.ProblemStatement)
+                && assignmentTask.Result.Tasks.Count > 0;
+        }
+
         private async Task GenerateSingleChapterAsync(LearningPlan plan, int chapterOrder, CancellationToken cancellationToken)
         {
             ChapterOutline chapter = plan.Chapters.FirstOrDefault(c => c.Order == chapterOrder);
@@ -156,8 +183,10 @@ namespace LearnInDepth.Services.Generation
 
         /// <summary>
         /// Generates chapters strictly in order, one at a time: a chapter is only started after the
-        /// previous one has fully completed. Chapters whose artifacts are already Ready are skipped
+        /// previous one has fully completed. Chapters whose artifacts actually exist are skipped
         /// (idempotent), so a whole-plan run resumes from the first chapter with unfinished work.
+        /// Existence is checked against the real documents - the persisted status can be stale
+        /// (e.g. DB says Ready but the content/quiz/assignment document is missing).
         /// </summary>
         private async Task GenerateChaptersSequentiallyAsync(
             LearningPlan plan, IReadOnlyCollection<ChapterOutline> chapters, CancellationToken cancellationToken)
@@ -168,7 +197,7 @@ namespace LearnInDepth.Services.Generation
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (!HasIncompleteArtifacts(chapter))
+                if (await AreAllArtifactsReadyAsync(plan.id, chapter.Order).ConfigureAwait(false))
                 {
                     continue;
                 }
