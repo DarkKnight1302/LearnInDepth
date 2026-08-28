@@ -5,8 +5,10 @@ namespace LearnInDepth.Services.Generation
 {
     /// <summary>
     /// Processes generation work items from the channel one plan at a time.
-    /// On startup, re-enqueues plans stuck in Generating (crash recovery) - chapter generation
-    /// is idempotent and skips artifacts that already exist.
+    /// On startup, re-enqueues plans stuck in Generating (crash recovery). Chapters are generated
+    /// strictly sequentially and artifact statuses are persisted in Cosmos, so a whole-plan work item
+    /// resumes from the first chapter with unfinished artifacts - the chapter that was in flight when
+    /// the app stopped. Generation is idempotent and skips artifacts that already exist.
     /// </summary>
     public class GenerationBackgroundService : BackgroundService
     {
@@ -60,18 +62,25 @@ namespace LearnInDepth.Services.Generation
                 List<LearningPlan> plans = await planRepository.ListAllAsync().ConfigureAwait(false);
                 foreach (LearningPlan plan in plans)
                 {
-                    if (plan.Status == GenerationStatus.Generating && plan.Chapters.Count == 0)
+                    if (plan.Status != GenerationStatus.Generating)
                     {
-                        logger.LogInformation("Re-enqueueing stale generating plan {PlanId}", plan.id);
-                        await channel.EnqueueAsync(new GenerationWorkItem { PlanId = plan.id }, stoppingToken).ConfigureAwait(false);
                         continue;
                     }
 
-                    foreach (ChapterOutline chapter in plan.Chapters.Where(HasUnfinishedArtifact))
+                    ChapterOutline resume = plan.Chapters.Where(HasUnfinishedArtifact).OrderBy(c => c.Order).FirstOrDefault();
+                    if (resume != null)
                     {
-                        logger.LogInformation("Re-enqueueing stale chapter {Order} of plan {PlanId}", chapter.Order, plan.id);
-                        await channel.EnqueueAsync(new GenerationWorkItem { PlanId = plan.id, ChapterOrder = chapter.Order }, stoppingToken).ConfigureAwait(false);
+                        // Chapters generate in order and statuses are persisted, so the first chapter
+                        // with unfinished artifacts is the one that was in flight at restart. A whole-plan
+                        // work item resumes from it, skipping chapters that are already ready.
+                        logger.LogInformation("Resuming stale plan {PlanId} generation from chapter {Order}", plan.id, resume.Order);
                     }
+                    else
+                    {
+                        logger.LogInformation("Re-enqueueing stale generating plan {PlanId}", plan.id);
+                    }
+
+                    await channel.EnqueueAsync(new GenerationWorkItem { PlanId = plan.id }, stoppingToken).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -85,8 +94,8 @@ namespace LearnInDepth.Services.Generation
         }
 
         private static bool HasUnfinishedArtifact(ChapterOutline c) =>
-            c.ContentStatus == ArtifactStatus.Pending || c.ContentStatus == ArtifactStatus.Generating ||
-            c.QuizStatus == ArtifactStatus.Pending || c.QuizStatus == ArtifactStatus.Generating ||
-            c.AssignmentStatus == ArtifactStatus.Pending || c.AssignmentStatus == ArtifactStatus.Generating;
+            c.ContentStatus != ArtifactStatus.Ready ||
+            c.QuizStatus != ArtifactStatus.Ready ||
+            c.AssignmentStatus != ArtifactStatus.Ready;
     }
 }

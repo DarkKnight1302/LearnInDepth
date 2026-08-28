@@ -14,7 +14,6 @@ namespace LearnInDepth.Services.Generation
         private readonly ILogger<GenerationOrchestrator> logger;
         private readonly string planModel;
         private readonly int planMaxTokens;
-        private readonly int maxConcurrentChapters;
         private readonly int maxSweepPasses;
 
         // Serializes generation runs per plan so duplicate work items cannot race.
@@ -33,7 +32,6 @@ namespace LearnInDepth.Services.Generation
             this.logger = logger;
             this.planModel = configuration["OpenCode:PlanModel"] ?? "kimi-k3";
             this.planMaxTokens = configuration.GetValue<int?>("OpenCode:PlanMaxTokens") ?? 4096;
-            this.maxConcurrentChapters = configuration.GetValue<int?>("OpenCode:MaxConcurrentChapterGenerations") ?? 3;
             this.maxSweepPasses = configuration.GetValue<int?>("OpenCode:MaxSweepPasses") ?? 2;
         }
 
@@ -84,7 +82,7 @@ namespace LearnInDepth.Services.Generation
                 }
             }
 
-            await GenerateChaptersInParallelAsync(plan, plan.Chapters, cancellationToken).ConfigureAwait(false);
+            await GenerateChaptersSequentiallyAsync(plan, plan.Chapters, cancellationToken).ConfigureAwait(false);
             await RunConvergenceSweepsAsync(plan, cancellationToken).ConfigureAwait(false);
             await FinalizePlanStatusAsync(plan).ConfigureAwait(false);
         }
@@ -107,7 +105,7 @@ namespace LearnInDepth.Services.Generation
                 logger.LogInformation("Convergence sweep pass {Pass}/{MaxPasses}: retrying {Count} chapters with failed/pending artifacts for plan {PlanId}",
                     pass, maxSweepPasses, incomplete.Count, plan.id);
 
-                await GenerateChaptersInParallelAsync(plan, incomplete, cancellationToken).ConfigureAwait(false);
+                await GenerateChaptersSequentiallyAsync(plan, incomplete, cancellationToken).ConfigureAwait(false);
 
                 // Stop early once everything is ready.
                 if (plan.Chapters.All(c => !HasIncompleteArtifacts(c)))
@@ -131,7 +129,7 @@ namespace LearnInDepth.Services.Generation
                 return;
             }
 
-            await GenerateChaptersInParallelAsync(plan, new List<ChapterOutline> { chapter }, cancellationToken).ConfigureAwait(false);
+            await GenerateChaptersSequentiallyAsync(plan, new List<ChapterOutline> { chapter }, cancellationToken).ConfigureAwait(false);
 
             // Re-check: if nothing is failed anymore and everything exists, ensure plan shows Ready.
             if (plan.Status == GenerationStatus.Ready || plan.Chapters.All(c =>
@@ -143,41 +141,47 @@ namespace LearnInDepth.Services.Generation
             }
         }
 
-        private async Task GenerateChaptersInParallelAsync(
+        /// <summary>
+        /// Generates chapters strictly in order, one at a time: a chapter is only started after the
+        /// previous one has fully completed. Chapters whose artifacts are already Ready are skipped
+        /// (idempotent), so a whole-plan run resumes from the first chapter with unfinished work.
+        /// </summary>
+        private async Task GenerateChaptersSequentiallyAsync(
             LearningPlan plan, IReadOnlyCollection<ChapterOutline> chapters, CancellationToken cancellationToken)
         {
             var planLock = new SemaphoreSlim(1, 1);
-            await Parallel.ForEachAsync(
-                chapters,
-                new ParallelOptions
+
+            foreach (ChapterOutline chapter in chapters.OrderBy(c => c.Order))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!HasIncompleteArtifacts(chapter))
                 {
-                    MaxDegreeOfParallelism = maxConcurrentChapters,
-                    CancellationToken = cancellationToken
-                },
-                async (chapter, ct) =>
+                    continue;
+                }
+
+                try
                 {
+                    await chapterGenerator.GenerateChapterAsync(plan, chapter, planLock, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogError(ex, "Chapter {Order} generation crashed for plan {PlanId}", chapter.Order, plan.id);
+                    await planLock.WaitAsync(cancellationToken).ConfigureAwait(false);
                     try
                     {
-                        await chapterGenerator.GenerateChapterAsync(plan, chapter, planLock, ct).ConfigureAwait(false);
+                        if (chapter.ContentStatus == ArtifactStatus.Generating) chapter.ContentStatus = ArtifactStatus.Failed;
+                        if (chapter.QuizStatus == ArtifactStatus.Generating) chapter.QuizStatus = ArtifactStatus.Failed;
+                        if (chapter.AssignmentStatus == ArtifactStatus.Generating) chapter.AssignmentStatus = ArtifactStatus.Failed;
+                        chapter.Error = ex.Message;
+                        await planRepository.UpsertAsync(plan).ConfigureAwait(false);
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    finally
                     {
-                        logger.LogError(ex, "Chapter {Order} generation crashed for plan {PlanId}", chapter.Order, plan.id);
-                        await planLock.WaitAsync(ct).ConfigureAwait(false);
-                        try
-                        {
-                            if (chapter.ContentStatus == ArtifactStatus.Generating) chapter.ContentStatus = ArtifactStatus.Failed;
-                            if (chapter.QuizStatus == ArtifactStatus.Generating) chapter.QuizStatus = ArtifactStatus.Failed;
-                            if (chapter.AssignmentStatus == ArtifactStatus.Generating) chapter.AssignmentStatus = ArtifactStatus.Failed;
-                            chapter.Error = ex.Message;
-                            await planRepository.UpsertAsync(plan).ConfigureAwait(false);
-                        }
-                        finally
-                        {
-                            planLock.Release();
-                        }
+                        planLock.Release();
                     }
-                }).ConfigureAwait(false);
+                }
+            }
         }
 
         private async Task<bool> GeneratePlanOutlineAsync(LearningPlan plan, CancellationToken cancellationToken)
