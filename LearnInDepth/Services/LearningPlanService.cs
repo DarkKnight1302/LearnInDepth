@@ -15,6 +15,7 @@ namespace LearnInDepth.Services
         private readonly IChapterQuizRepository quizRepository;
         private readonly IChapterAssignmentRepository assignmentRepository;
         private readonly IGenerationChannel generationChannel;
+        private readonly IGenerationOrchestrator generationOrchestrator;
         private readonly ILogger<LearningPlanService> logger;
 
         public LearningPlanService(
@@ -23,6 +24,7 @@ namespace LearnInDepth.Services
             IChapterQuizRepository quizRepository,
             IChapterAssignmentRepository assignmentRepository,
             IGenerationChannel generationChannel,
+            IGenerationOrchestrator generationOrchestrator,
             ILogger<LearningPlanService> logger)
         {
             this.planRepository = planRepository;
@@ -30,7 +32,25 @@ namespace LearnInDepth.Services
             this.quizRepository = quizRepository;
             this.assignmentRepository = assignmentRepository;
             this.generationChannel = generationChannel;
+            this.generationOrchestrator = generationOrchestrator;
             this.logger = logger;
+        }
+
+        /// <summary>
+        /// Explicitly drains the generation queue and processes every queued work item. Nothing runs
+        /// automatically - generation only happens when this is invoked.
+        /// </summary>
+        public async Task<int> RunQueuedGenerationsAsync(CancellationToken cancellationToken)
+        {
+            int processed = 0;
+            foreach (GenerationWorkItem workItem in generationChannel.TryDrainAll())
+            {
+                logger.LogInformation("Processing queued generation work item for plan {PlanId}, chapter {Chapter}",
+                    workItem.PlanId, workItem.ChapterOrder?.ToString() ?? "(all)");
+                await generationOrchestrator.GenerateAsync(workItem, cancellationToken).ConfigureAwait(false);
+                processed++;
+            }
+            return processed;
         }
 
         public async Task<TopicSubmissionResult> SubmitTopicAsync(string topic, string userId)

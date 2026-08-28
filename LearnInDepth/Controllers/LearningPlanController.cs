@@ -318,6 +318,23 @@ namespace LearnInDepth.Controllers
                 new { success = true, message = "Chapter regeneration submitted." });
         }
 
+        /// <summary>
+        /// Explicitly drains the queued generation work items and processes them in order.
+        /// No background service consumes the queue automatically - generation runs only when
+        /// this endpoint is invoked.
+        /// </summary>
+        [HttpPost("generation/run")]
+        [RateLimit(5, 60)]
+        public async Task<IActionResult> RunQueuedGenerations()
+        {
+            string userId = ValidateAuth();
+            if (userId == null) return Unauthorized();
+
+            int processed = await learningPlanService.RunQueuedGenerationsAsync(HttpContext.RequestAborted);
+            logger.LogInformation("Processed {Count} queued generation work item(s) via explicit run endpoint", processed);
+            return Ok(new { success = true, processed });
+        }
+
         [HttpGet("topics/{slug}/progress")]
         [RateLimit(60, 5)]
         public async Task<IActionResult> GetProgress(string slug)

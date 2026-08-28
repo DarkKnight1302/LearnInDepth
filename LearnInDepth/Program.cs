@@ -45,11 +45,10 @@ builder.Services.AddSingleton<IAssignmentService, AssignmentService>();
 builder.Services.AddSingleton<IUserProgressService, UserProgressService>();
 builder.Services.AddSingleton<ISignInHandler, SignInHandler>();
 
-// Generation pipeline
+// Generation pipeline (no background service - the queue is drained explicitly via the generation/run endpoint)
 builder.Services.AddSingleton<IGenerationChannel, GenerationChannel>();
 builder.Services.AddSingleton<IGenerationOrchestrator, GenerationOrchestrator>();
 builder.Services.AddSingleton<IChapterGenerator, ChapterGenerator>();
-builder.Services.AddHostedService<GenerationBackgroundService>();
 
 
 
