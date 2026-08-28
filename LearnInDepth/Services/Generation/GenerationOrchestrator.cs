@@ -19,6 +19,12 @@ namespace LearnInDepth.Services.Generation
         // Serializes generation runs per plan so duplicate work items cannot race.
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> PlanGates = new ConcurrentDictionary<string, SemaphoreSlim>();
 
+        // Plans currently being processed. Lets status consumers tell active generation apart from
+        // stale persisted statuses (e.g. an artifact stuck at Generating after a crash).
+        private static readonly ConcurrentDictionary<string, byte> PlansInFlight = new ConcurrentDictionary<string, byte>();
+
+        public bool IsGenerating(string planId) => PlansInFlight.ContainsKey(planId);
+
         public GenerationOrchestrator(
             ILearningPlanRepository planRepository,
             IOpenCodeCompletionClient llmClient,
@@ -39,6 +45,7 @@ namespace LearnInDepth.Services.Generation
         {
             SemaphoreSlim gate = PlanGates.GetOrAdd(workItem.PlanId, _ => new SemaphoreSlim(1, 1));
             await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            PlansInFlight.TryAdd(workItem.PlanId, 0);
             try
             {
                 LearningPlan plan = await planRepository.GetByIdAsync(workItem.PlanId).ConfigureAwait(false);
@@ -67,6 +74,7 @@ namespace LearnInDepth.Services.Generation
             }
             finally
             {
+                PlansInFlight.TryRemove(workItem.PlanId, out _);
                 gate.Release();
             }
         }
@@ -131,14 +139,19 @@ namespace LearnInDepth.Services.Generation
 
             await GenerateChaptersSequentiallyAsync(plan, new List<ChapterOutline> { chapter }, cancellationToken).ConfigureAwait(false);
 
-            // Re-check: if nothing is failed anymore and everything exists, ensure plan shows Ready.
-            if (plan.Status == GenerationStatus.Ready || plan.Chapters.All(c =>
-                c.ContentStatus != ArtifactStatus.Failed && c.QuizStatus != ArtifactStatus.Failed && c.AssignmentStatus != ArtifactStatus.Failed))
+            // Re-check: once every chapter is fully ready the plan is Ready; otherwise surface failures.
+            if (plan.Chapters.All(c =>
+                c.ContentStatus == ArtifactStatus.Ready && c.QuizStatus == ArtifactStatus.Ready && c.AssignmentStatus == ArtifactStatus.Ready))
             {
                 plan.Status = GenerationStatus.Ready;
                 plan.Error = string.Empty;
-                await planRepository.UpsertAsync(plan).ConfigureAwait(false);
             }
+            else if (plan.Chapters.Any(HasFailedArtifact))
+            {
+                plan.Status = GenerationStatus.Failed;
+                plan.Error = "Some chapter generations failed. See per-chapter errors and retry.";
+            }
+            await planRepository.UpsertAsync(plan).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -238,24 +251,36 @@ namespace LearnInDepth.Services.Generation
 
         private async Task FinalizePlanStatusAsync(LearningPlan plan)
         {
-            bool allArtifactsFailed = plan.Chapters.All(c =>
-                c.ContentStatus == ArtifactStatus.Failed && c.QuizStatus == ArtifactStatus.Failed && c.AssignmentStatus == ArtifactStatus.Failed);
+            bool allReady = plan.Chapters.All(c =>
+                c.ContentStatus == ArtifactStatus.Ready && c.QuizStatus == ArtifactStatus.Ready && c.AssignmentStatus == ArtifactStatus.Ready);
+            bool anyFailed = plan.Chapters.Any(HasFailedArtifact);
 
-            if (allArtifactsFailed)
-            {
-                plan.Status = GenerationStatus.Failed;
-                plan.Error = "All chapter generations failed. See per-chapter errors and retry.";
-            }
-            else
+            if (allReady)
             {
                 plan.Status = GenerationStatus.Ready;
                 plan.Error = string.Empty;
                 plan.CompletedAtUtc = DateTime.UtcNow;
             }
+            else if (anyFailed)
+            {
+                // A partially-generated plan is not Ready - surface the failures so they can be retried.
+                plan.Status = GenerationStatus.Failed;
+                plan.Error = "Some chapter generations failed. See per-chapter errors and retry.";
+            }
+            else
+            {
+                plan.Status = GenerationStatus.Generating;
+                plan.Error = string.Empty;
+            }
             plan.GenerationUpdatedAtUtc = DateTime.UtcNow;
             await planRepository.UpsertAsync(plan).ConfigureAwait(false);
             logger.LogInformation("Plan {PlanId} finalized with status {Status}", plan.id, plan.Status);
         }
+
+        private static bool HasFailedArtifact(ChapterOutline chapter) =>
+            chapter.ContentStatus == ArtifactStatus.Failed ||
+            chapter.QuizStatus == ArtifactStatus.Failed ||
+            chapter.AssignmentStatus == ArtifactStatus.Failed;
 
         private async Task TryMarkPlanFailedAsync(string planId, string error)
         {

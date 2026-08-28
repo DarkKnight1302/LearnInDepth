@@ -126,7 +126,7 @@ namespace LearnInDepth.Controllers
                 return NotFound(new { success = false, message = $"No learning plan found for '{slug}'" });
             }
 
-            return Ok(BuildStatusResponse(plan));
+            return Ok(await learningPlanService.GetRealTimeStatusAsync(plan));
         }
 
         [HttpGet("topics/{slug}/plan")]
@@ -370,38 +370,6 @@ namespace LearnInDepth.Controllers
 
             bool isValid = tokenService.IsValidAuth(userId, HttpContext, GlobalConstant.Issuer);
             return isValid ? userId : null;
-        }
-
-        private static TopicStatusResponse BuildStatusResponse(LearningPlan plan)
-        {
-            int totalArtifacts = plan.Chapters.Count * 3;
-            int readyArtifacts = plan.Chapters.Sum(c =>
-                (c.ContentStatus == ArtifactStatus.Ready ? 1 : 0) +
-                (c.QuizStatus == ArtifactStatus.Ready ? 1 : 0) +
-                (c.AssignmentStatus == ArtifactStatus.Ready ? 1 : 0));
-
-            return new TopicStatusResponse
-            {
-                Slug = plan.id,
-                Topic = plan.Topic,
-                Status = plan.Status.ToString(),
-                TotalChapters = plan.Chapters.Count,
-                ReadyChapters = plan.Chapters.Count(c =>
-                    c.ContentStatus == ArtifactStatus.Ready && c.QuizStatus == ArtifactStatus.Ready && c.AssignmentStatus == ArtifactStatus.Ready),
-                FailedChapters = plan.Chapters.Count(c =>
-                    c.ContentStatus == ArtifactStatus.Failed || c.QuizStatus == ArtifactStatus.Failed || c.AssignmentStatus == ArtifactStatus.Failed),
-                PercentComplete = totalArtifacts == 0 ? 0 : (int)Math.Round(100.0 * readyArtifacts / totalArtifacts),
-                Error = plan.Error,
-                Chapters = plan.Chapters.OrderBy(c => c.Order).Select(c => new ChapterStatusDto
-                {
-                    Order = c.Order,
-                    Title = c.Title,
-                    ContentStatus = c.ContentStatus.ToString(),
-                    QuizStatus = c.QuizStatus.ToString(),
-                    AssignmentStatus = c.AssignmentStatus.ToString(),
-                    Error = c.Error
-                }).ToList()
-            };
         }
     }
 }

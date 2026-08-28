@@ -110,6 +110,112 @@ namespace LearnInDepth.Services
             return await planRepository.GetByIdAsync(NormalizeTopic(slug)).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Computes the real generation status of every chapter by verifying whether the actual
+        /// content/quiz/assignment documents exist, then overlaying the true in-flight state
+        /// (queued work items + the plan currently being processed by the orchestrator). Persisted
+        /// status fields alone can be stale - e.g. an artifact marked Ready whose document was never
+        /// written, or a Failed/Pending artifact that actually exists.
+        /// </summary>
+        public async Task<TopicStatusResponse> GetRealTimeStatusAsync(LearningPlan plan)
+        {
+            GenerationQueueStatus queue = generationChannel.GetQueueStatus(plan.id);
+            bool inFlight = generationOrchestrator.IsGenerating(plan.id);
+            ChapterOutline[] chapters = plan.Chapters.OrderBy(c => c.Order).ToArray();
+
+            Task<ChapterStatusDto>[] chapterTasks = chapters.Select(async c =>
+            {
+                Task<ChapterContent> contentTask = contentRepository.GetAsync(plan.id, c.Order);
+                Task<ChapterQuiz> quizTask = quizRepository.GetAsync(plan.id, c.Order);
+                Task<ChapterAssignment> assignmentTask = assignmentRepository.GetAsync(plan.id, c.Order);
+                await Task.WhenAll(contentTask, quizTask, assignmentTask).ConfigureAwait(false);
+
+                bool hasWork = queue.HasWorkForChapter(c.Order);
+                string contentStatus = ResolveStatus(c.ContentStatus, IsContentReady(contentTask.Result), hasWork, inFlight);
+                string quizStatus = ResolveStatus(c.QuizStatus, IsQuizReady(quizTask.Result), hasWork, inFlight);
+                string assignmentStatus = ResolveStatus(c.AssignmentStatus, IsAssignmentReady(assignmentTask.Result), hasWork, inFlight);
+                bool failed = contentStatus == ArtifactStatus.Failed.ToString()
+                    || quizStatus == ArtifactStatus.Failed.ToString()
+                    || assignmentStatus == ArtifactStatus.Failed.ToString();
+
+                return new ChapterStatusDto
+                {
+                    Order = c.Order,
+                    Title = c.Title,
+                    ContentStatus = contentStatus,
+                    QuizStatus = quizStatus,
+                    AssignmentStatus = assignmentStatus,
+                    Error = failed ? c.Error : string.Empty
+                };
+            }).ToArray();
+
+            ChapterStatusDto[] statuses = await Task.WhenAll(chapterTasks).ConfigureAwait(false);
+
+            int readyChapters = statuses.Count(cs =>
+                cs.ContentStatus == ArtifactStatus.Ready.ToString()
+                && cs.QuizStatus == ArtifactStatus.Ready.ToString()
+                && cs.AssignmentStatus == ArtifactStatus.Ready.ToString());
+            int failedChapters = statuses.Count(cs =>
+                cs.ContentStatus == ArtifactStatus.Failed.ToString()
+                || cs.QuizStatus == ArtifactStatus.Failed.ToString()
+                || cs.AssignmentStatus == ArtifactStatus.Failed.ToString());
+
+            int totalArtifacts = chapters.Length * 3;
+            int readyArtifacts = statuses.Sum(cs =>
+                (cs.ContentStatus == ArtifactStatus.Ready.ToString() ? 1 : 0)
+                + (cs.QuizStatus == ArtifactStatus.Ready.ToString() ? 1 : 0)
+                + (cs.AssignmentStatus == ArtifactStatus.Ready.ToString() ? 1 : 0));
+
+            string planStatus = chapters.Length == 0
+                ? (queue.HasWork || inFlight ? GenerationStatus.Generating.ToString() : plan.Status.ToString())
+                : readyChapters == chapters.Length
+                    ? GenerationStatus.Ready.ToString()
+                    : statuses.Any(cs => cs.ContentStatus == ArtifactStatus.Generating.ToString()
+                        || cs.QuizStatus == ArtifactStatus.Generating.ToString()
+                        || cs.AssignmentStatus == ArtifactStatus.Generating.ToString())
+                        ? GenerationStatus.Generating.ToString()
+                        : failedChapters > 0
+                            ? GenerationStatus.Failed.ToString()
+                            : plan.Status.ToString();
+
+            return new TopicStatusResponse
+            {
+                Slug = plan.id,
+                Topic = plan.Topic,
+                Status = planStatus,
+                TotalChapters = chapters.Length,
+                ReadyChapters = readyChapters,
+                FailedChapters = failedChapters,
+                PercentComplete = totalArtifacts == 0 ? 0 : (int)Math.Round(100.0 * readyArtifacts / totalArtifacts),
+                Error = plan.Error,
+                Chapters = statuses.ToList()
+            };
+        }
+
+        private static bool IsContentReady(ChapterContent content) =>
+            content != null && !string.IsNullOrWhiteSpace(content.HtmlContent);
+
+        private static bool IsQuizReady(ChapterQuiz quiz) =>
+            quiz != null && quiz.Questions.Count > 0;
+
+        private static bool IsAssignmentReady(ChapterAssignment assignment) =>
+            assignment != null && !string.IsNullOrWhiteSpace(assignment.ProblemStatement) && assignment.Tasks.Count > 0;
+
+        /// <summary>
+        /// Resolves the real status of one artifact. Ready is authoritative (the document exists).
+        /// Otherwise the artifact is Generating only while work for it is actually queued or the
+        /// plan is being processed and the persisted status says Generating. A persisted Generating
+        /// status with no queued/in-flight work is a crashed run, so it surfaces as Pending rather
+        /// than a permanently stale "Generating".
+        /// </summary>
+        private static string ResolveStatus(ArtifactStatus dbStatus, bool artifactReady, bool hasWork, bool inFlight)
+        {
+            if (artifactReady) return ArtifactStatus.Ready.ToString();
+            if (hasWork || (inFlight && dbStatus == ArtifactStatus.Generating)) return ArtifactStatus.Generating.ToString();
+            if (dbStatus == ArtifactStatus.Failed) return ArtifactStatus.Failed.ToString();
+            return ArtifactStatus.Pending.ToString();
+        }
+
         public async Task<ChapterContent> GetChapterContentAsync(string slug, int order)
         {
             return await contentRepository.GetAsync(NormalizeTopic(slug), order).ConfigureAwait(false);

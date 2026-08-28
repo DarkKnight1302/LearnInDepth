@@ -7,6 +7,7 @@ namespace LearnInDepth.Services.Interfaces
     {
         Task<TopicSubmissionResult> SubmitTopicAsync(string topic, string userId);
         Task<LearningPlan> GetPlanAsync(string slug);
+        Task<TopicStatusResponse> GetRealTimeStatusAsync(LearningPlan plan);
         Task<ChapterContent> GetChapterContentAsync(string slug, int order);
         Task<ChapterQuiz> GetChapterQuizAsync(string slug, int order);
         Task<ChapterAssignment> GetChapterAssignmentAsync(string slug, int order);
