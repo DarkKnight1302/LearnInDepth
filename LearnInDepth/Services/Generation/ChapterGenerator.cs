@@ -41,8 +41,8 @@ namespace LearnInDepth.Services.Generation
             this.quizRepository = quizRepository;
             this.assignmentRepository = assignmentRepository;
             this.logger = logger;
-            this.contentModel = configuration["OpenCode:ContentModel"] ?? "kimi-k3";
-            this.contentReviewModel = configuration["OpenCode:ContentReviewModel"] ?? "kimi-k3";
+            this.contentModel = configuration["OpenCode:ContentModel"] ?? "deepseek-v4-flash";
+            this.contentReviewModel = configuration["OpenCode:ContentReviewModel"] ?? "deepseek-v4-flash";
             this.quizModel = configuration["OpenCode:QuizModel"] ?? "deepseek-v4-flash";
             this.assignmentModel = configuration["OpenCode:AssignmentModel"] ?? "deepseek-v4-flash";
             this.contentMaxTokens = configuration.GetValue<int?>("OpenCode:ContentMaxTokens") ?? 32000;
