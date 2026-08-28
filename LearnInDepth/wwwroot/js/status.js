@@ -99,7 +99,12 @@ const StatusController = (function() {
       return;
     }
 
-    chaptersStatusList.innerHTML = data.chapters.map(ch => `
+    chaptersStatusList.innerHTML = data.chapters.map(ch => {
+      const hasFailed = ch.contentStatus === 'Failed' || ch.quizStatus === 'Failed' || ch.assignmentStatus === 'Failed';
+      const hasPending = !hasFailed && (ch.contentStatus === 'Pending' || ch.quizStatus === 'Pending' || ch.assignmentStatus === 'Pending');
+      const action = hasFailed ? 'Retry' : 'Generate';
+
+      return `
       <div class="chapter-status-row">
         <div class="chapter-row-left">
           <div class="chapter-index-badge">${ch.order}</div>
@@ -113,22 +118,23 @@ const StatusController = (function() {
           <span class="artifact-tag ${ch.contentStatus}" title="Content">Content: ${ch.contentStatus}</span>
           <span class="artifact-tag ${ch.quizStatus}" title="Quiz">Quiz: ${ch.quizStatus}</span>
           <span class="artifact-tag ${ch.assignmentStatus}" title="Assignment">Assignment: ${ch.assignmentStatus}</span>
-          ${(ch.contentStatus === 'Failed' || ch.quizStatus === 'Failed' || ch.assignmentStatus === 'Failed') ? `
-            <button class="editor-tool-btn" onclick="StatusController.handleRetry(${ch.order})" style="color: var(--accent-rose); border-color: rgba(244,63,94,0.3);">Retry</button>
+          ${hasFailed || hasPending ? `
+            <button class="editor-tool-btn" onclick="StatusController.handleRetry(${ch.order}, '${action}')" style="color: var(--accent-rose); border-color: rgba(244,63,94,0.3);">${action}</button>
           ` : ''}
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
-  async function handleRetry(order) {
+  async function handleRetry(order, action = 'Retry') {
     if (!activeSlug) return;
     try {
       await ApiClient.retryChapter(activeSlug, order);
-      App.showToast(`Retry queued for Chapter ${order}`, 'info');
+      App.showToast(`${action} queued for Chapter ${order}`, 'info');
       fetchStatus();
     } catch (err) {
-      App.showToast(err.message || 'Retry failed', 'error');
+      App.showToast(err.message || `${action} failed`, 'error');
     }
   }
 
