@@ -103,7 +103,7 @@ namespace LearnInDepth.Controllers
                 {
                     Slug = plan.id,
                     Topic = plan.Topic,
-                    Status = plan.Status.ToString(),
+                    Status = learningPlanService.GetPlanStatusLabel(plan),
                     TotalChapters = plan.Chapters.Count,
                     CreatedAtUtc = plan.CreatedAtUtc,
                     UserProgressPercent = progressPercent

@@ -166,8 +166,13 @@ namespace LearnInDepth.Services
                 + (cs.QuizStatus == ArtifactStatus.Ready.ToString() ? 1 : 0)
                 + (cs.AssignmentStatus == ArtifactStatus.Ready.ToString() ? 1 : 0));
 
+            // A plan is only truly "Generating" when there is queued work for it or the orchestrator
+            // is actively processing it. A persisted Generating status with no queued/in-flight work
+            // is a stale/interrupted run, so surface it as Pending rather than claiming activity.
+            bool active = queue.HasWork || inFlight;
+
             string planStatus = chapters.Length == 0
-                ? (queue.HasWork || inFlight ? GenerationStatus.Generating.ToString() : plan.Status.ToString())
+                ? (active ? GenerationStatus.Generating.ToString() : ArtifactStatus.Pending.ToString())
                 : readyChapters == chapters.Length
                     ? GenerationStatus.Ready.ToString()
                     : statuses.Any(cs => cs.ContentStatus == ArtifactStatus.Generating.ToString()
@@ -176,7 +181,7 @@ namespace LearnInDepth.Services
                         ? GenerationStatus.Generating.ToString()
                         : failedChapters > 0
                             ? GenerationStatus.Failed.ToString()
-                            : plan.Status.ToString();
+                            : (active ? GenerationStatus.Generating.ToString() : ArtifactStatus.Pending.ToString());
 
             return new TopicStatusResponse
             {
@@ -234,6 +239,20 @@ namespace LearnInDepth.Services
         public async Task<List<LearningPlan>> ListTopicsAsync()
         {
             return await planRepository.ListAllAsync().ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Lightweight truth for the topic list (avoids per-artifact reads). A plan is Generating only
+        /// while it has queued work or is actively being processed; otherwise report its persisted
+        /// Ready/Failed, or Pending for a stale/interrupted Generating flag.
+        /// </summary>
+        public string GetPlanStatusLabel(LearningPlan plan)
+        {
+            bool active = generationChannel.GetQueueStatus(plan.id).HasWork || generationOrchestrator.IsGenerating(plan.id);
+            if (active) return GenerationStatus.Generating.ToString();
+            if (plan.Status == GenerationStatus.Ready) return GenerationStatus.Ready.ToString();
+            if (plan.Status == GenerationStatus.Failed) return GenerationStatus.Failed.ToString();
+            return ArtifactStatus.Pending.ToString();
         }
 
         public async Task<bool> RetryChapterAsync(string slug, int order)

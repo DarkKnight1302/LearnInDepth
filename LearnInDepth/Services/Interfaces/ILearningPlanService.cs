@@ -12,6 +12,7 @@ namespace LearnInDepth.Services.Interfaces
         Task<ChapterQuiz> GetChapterQuizAsync(string slug, int order);
         Task<ChapterAssignment> GetChapterAssignmentAsync(string slug, int order);
         Task<List<LearningPlan>> ListTopicsAsync();
+        string GetPlanStatusLabel(LearningPlan plan);
         Task<bool> RetryChapterAsync(string slug, int order);
         Task<int> RunQueuedGenerationsAsync(CancellationToken cancellationToken);
         string NormalizeTopic(string topic);
